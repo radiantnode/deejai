@@ -1,0 +1,42 @@
+#!/usr/bin/env ruby
+
+# TODO: Refactor this into a proper class/methods
+
+require 'dotenv/load'
+require_relative "../lib/playlist_completion"
+require_relative "../lib/spotify"
+
+module HTTParty
+  class Response
+    # HTTParty is deprecating the `nil?` method on Response. We are currently
+    # triggering this warning because we are passing the Responses to the
+    # Promise used by concurrent-ruby which calls `nil?` internally on returned
+    # objects. 
+    def nil?
+      !ok?
+    end
+  end
+end
+
+puts "Talking with AI..."
+
+completion = PlaylistCompletion.new(ARGV[0]).perform
+
+queries = completion.playlist['tracks'].map { |track| "track:#{track['track']} artist:#{track['artist']}" }
+
+puts "Searching Spotify for tracks..."
+
+spotify = Spotify.new
+results = spotify.concurrent_search(queries)
+
+track_uris = results.map { |r| r.parsed_response.dig('tracks', 'items', 0, 'uri') }.compact
+
+puts "Creating playlist..."
+
+playlist = spotify.create_playlist(completion.playlist['title'])
+
+puts "Adding tracks to playlist..."
+
+spotify.add_to_playlist(playlist['id'], track_uris)
+
+puts "Done."
